@@ -1,0 +1,29 @@
+name: "ZIP export"
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+env:
+  EXPORT_NAME: goldimporter
+  BUILD_PATH_ROOT: /tmp/build
+
+jobs:
+  export-game:
+    name: Export ZIP
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      # build
+      - name: Package
+        run: |
+          zip $EXPORT_NAME-${{github.ref_name}}.zip $EXPORT_NAME
+      # Release to this repo
+      - name: Private Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          token: ${{ secrets.ADMIN_TOKEN }}
+          files: |
+            ${{env.EXPORT_NAME}}-${{github.ref_name}}.zip
