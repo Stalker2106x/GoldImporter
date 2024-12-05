@@ -1,6 +1,7 @@
-# GoldImporter for Blender
+# GoldImporter
+## GoldSrc (Half life) BSP Importer for Blender
 
-## This repository is a Goldsrc port of the original [blender_io_mesh_bsp](https://github.com/andyp123/blender_io_mesh_bsp/) released by andyp123
+__This repository is a Goldsrc fork of the original [blender_io_mesh_bsp](https://github.com/andyp123/blender_io_mesh_bsp/) released by andyp123__
 
 An add-on for [Blender](https://www.blender.org/) that makes it possible to import Goldsrc BSP files, (including textures stored in the BSP) as materials. It works with Blender 4.0+
 
@@ -8,7 +9,8 @@ An add-on for [Blender](https://www.blender.org/) that makes it possible to impo
 
 ## Features
 - Imports all BSP models as mesh
-- Imports all entities and add fields as custom properties
+- Imports all lights as blender lights
+- Imports all entities as empty and add fields as custom properties
 - Stitches matching trigger_changelevel between imports
 
 ## Installation
@@ -16,13 +18,15 @@ An add-on for [Blender](https://www.blender.org/) that makes it possible to impo
 2. In Blender, open Preferences (Edit > Preferences) and switch to the Add-ons section.
 3. Select 'Install Add-on from file...' and select the ZIP file that you downloaded.
 4. Search for the add-on in the list (enter 'BSP' to quickly find it) and enable it.
-5. Save the preferences if you would like the script to always be enabled.
+5. Check addon preferences and provide "Extracted WAD path", which is a folder containing all textures used in your map in PNG format, all lowercase.
+You can obtain them by extracting Half-life WADs using any WAD tool such as [wad3-cli](https://github.com/Stalker2106x/wad3-cli)
 
 ## Usage
-Once the addon has been installed, you need to configure it to locate the path where your textures are stored. They are expected to be PNG.
 
-You will be able to import GoldSrc bsp files from __File > Import > Goldsrc BSP (.bsp)__. Selecting this option will open the file browser and allow you to select a file to load.
+You will be able to import GoldSrc bsp files from __File > Import > Goldsrc BSP (.bsp)__.
+Selecting this option will open the file browser and allow you to select a file to load.
 
+__NOTE: GoldImporter uses external textures, check addon preferences to configure your WAD folder__
 
 ### Scale (default: 0.03125)
 Changes the size of the imported geometry. The size of a unit in Quake is not the

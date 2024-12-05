@@ -2,7 +2,7 @@ name: "ZIP export"
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "v*.*"
 
 env:
   EXPORT_NAME: goldimporter
