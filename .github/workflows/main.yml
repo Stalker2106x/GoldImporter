@@ -6,7 +6,6 @@ on:
 
 env:
   EXPORT_NAME: goldimporter
-  BUILD_PATH_ROOT: /tmp/build
 
 jobs:
   export-game:
@@ -18,7 +17,7 @@ jobs:
       # build
       - name: Package
         run: |
-          zip $EXPORT_NAME-${{github.ref_name}}.zip $EXPORT_NAME
+          zip $EXPORT_NAME-${{github.ref_name}}.zip goldimporter/*
       # Release to this repo
       - name: Release
         uses: softprops/action-gh-release@v2

@@ -20,11 +20,11 @@ bl_info = {
     "name": "Import GoldSrc BSP format",
     "author": "Maxime Martens (forked from Andrew Palmer work with contributions from Ian Cunningham)",
     "version": (1, 2),
-    "blender": (2, 80, 0),
+    "blender": (4, 0, 0),
     "location": "File > Import > GoldSrc BSP v30 (.bsp)",
-    "description": "Import geometry and materials from a GoldSrc BSP v30 file.",
-    "wiki_url": "https://github.com/stalker2106x/blender_io_mesh_bsp",
-    "category": "Import-Export",
+    "description": "Import geometry and entities from a GoldSrc BSP v30 file.",
+    "wiki_url": "https://github.com/stalker2106x/GoldImporter",
+    "category": "Import",
 }
 
 # reload submodules if the addon is reloaded 
@@ -65,7 +65,7 @@ class GoldImporterPreferences(AddonPreferences):
 class GoldImporter(bpy.types.Operator, ImportHelper):
     bl_idname       = "gold_importer.bsp"
     bl_description  = "Import geometry from GoldSrc BSP v30 file format (.bsp)"
-    bl_label        = "Goldsrc BSP v30 Importer"
+    bl_label        = "Import BSP"
     bl_options      = {'UNDO'}
 
     filename_ext = ".bsp"
