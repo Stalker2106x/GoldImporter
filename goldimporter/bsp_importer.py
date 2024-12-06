@@ -28,6 +28,7 @@ from collections import namedtuple
 from math import radians
 from random import uniform # used for setting material color
 
+SupportedTextureExtensions = ["bmp", "png", "jpeg", "jpg", "tga"]
 
 # type definitions
 BSPHeader = namedtuple('BSPHeader', 
@@ -93,30 +94,9 @@ fmt_BSPTexInfo = '<8f2I'
 BSPMipTex = namedtuple('BSPMipTex', 'name, width, height, ofs1, ofs2, ofs4, ofs8')
 fmt_BSPMipTex = '<16s6I'
 
-# surfaces with these textures will be ignored
-ignored_texnames = (
-    "clip",
-    "trigger",
-    "hint",
-    "skip",
-    "waterskip",
-    "lavaskip",
-    "slimeskip",
-    "hintskip",
-)
-
-imported_entity_prefixes = (
-    "monster_",
-    "item_",
-    "weapon_",
-)
-
-camera_types = (
-    "info_intermission",
-    "info_player_start",
-)
-
 light_prefix = "light"
+
+skipped_textures = ["sky"]
 
 # special texture attributes
 transparent_prefix = "{"
@@ -128,14 +108,6 @@ def print_debug(string):
     debug = False
     if debug:
         print(string)
-
-
-def is_imported_entity(classname):
-    for prefix in imported_entity_prefixes:
-        if classname.startswith(prefix):
-            return True
-    return False
-
 
 def parse_float_safe(obj, key, default=0):
     try:
@@ -232,7 +204,7 @@ def load_textures(context, filepath, brightness_adjust, load_miptex=True):
             fullbright = [] # list containing indices of fullbright pixels
             is_transparent = miptex_name.startswith(transparent_prefix)
             is_emissive = (miptex_name.startswith(liquid_prefix) or miptex_name.startswith(sky_prefix))
-            create_mask = (is_emissive is False and miptex_name not in ignored_texnames)
+            create_mask = (is_emissive is False)
 
             for y in reversed(range(miptex.height)):
                 i = miptex.width * y
@@ -367,46 +339,21 @@ def light_add(entity, scale):
     return obj
 
 
-def camera_add(entity, scale):
-    # Get entity data
-    origin = parse_vec3_safe(entity, 'origin', scale)
-    angle = [0, 0, 0]
-    if 'mangle' in entity:
-        # mangle is pitch, yaw and roll of the camera
-        # assume y is forward vector, so roll is y rotation
-        mangle = parse_vec3_safe(entity, 'mangle')
-        angle[0] = radians(90 - mangle[0]) # pitch
-        angle[1] = radians(mangle[2]) # roll
-        angle[2] = radians(mangle[1] - 90) # yaw
-    else:
-        z = parse_float_safe(entity, 'angle', 0)
-        angle[0] = radians(90)
-        angle[2] = radians(z - 90)
-
-    # Create a camera object (not yet linked to the scene)
-    classname = entity['classname']
-    camera_data = bpy.data.cameras.new(classname)
-    camera_data.lens = 18 # corresponds to 90 degree FOV
-    camera_data.lens_unit = 'FOV' # show as FOV in UI
-
-    obj = bpy.data.objects.new(classname, camera_data)
-    obj.location = origin
-    obj.rotation_euler = angle
-    obj.show_name = True
-
-    # set active scene camera
-    if classname == 'info_player_start':
-        bpy.context.scene.camera = obj
-
-    return obj
-
+def find_texture(texture_name, preferences):
+    # We search on all possible extensions
+    for ext in SupportedTextureExtensions:
+        # We try both lowercase and uppercase
+        for case in range(2):
+            testpath = f"{preferences['wadpath']}{texture_name.lower() if case == 0 else texture_name.upper()}.{ext}"
+            if os.path.exists(testpath):
+                return bpy.data.images.load(testpath)
+    return None
 
 def create_materials(texture_data, preferences, options):
     for texture_entry in texture_data:
-        print(texture_entry)
         name = texture_entry['name']
-        if (options['remove_hidden'] is True and name in ignored_texnames):
-            continue
+        if bpy.data.materials.get(name) != None:
+            continue # Material exists
 
         # create material
         mat = bpy.data.materials.new(name)
@@ -414,21 +361,6 @@ def create_materials(texture_data, preferences, options):
         mat.use_nodes = True
         mat.diffuse_color = [uniform(0.1, 1.0), uniform(0.1, 1.0), uniform(0.1, 1.0), 1.0]
         mat.use_backface_culling = True
-
-        image = bpy.data.images.load(preferences['wadpath']+f"{name.lower()}.png")
-        mask = texture_entry['mask']
-
-        # create texture from image
-        texture = bpy.data.textures.new(name, type='IMAGE')
-        texture.image = image
-        texture.use_alpha = texture_entry['use_alpha']
-
-        # pack mask texture if there is one
-        if mask is not None:
-            mask.pack()
-            mask_texture = bpy.data.textures.new(name + '_emission', type='IMAGE')
-            mask_texture.image = mask
-            mask_texture.use_alpha = False
 
         # set up node tree
         node_tree = mat.node_tree
@@ -438,11 +370,29 @@ def create_materials(texture_data, preferences, options):
         # set roughness
         main_shader.inputs['Roughness'].default_value = 1.0
 
+        # create image node
         image_node = node_tree.nodes.new('ShaderNodeTexImage')
-        image_node.image = image
         image_node.interpolation = 'Closest'
         image_node.location = [-256.0, 300.0]
         node_tree.links.new(image_node.outputs['Color'], main_shader.inputs[0])
+
+        # Find texture, if exists, associate to image_node
+        image = find_texture(name, preferences)
+        if image is not None:
+            # create texture from image
+            texture = bpy.data.textures.new(name, type='IMAGE')
+            texture.image = image
+            texture.use_alpha = texture_entry['use_alpha']
+            image_node.image = image
+            
+        # pack mask texture if there is one
+        mask = texture_entry['mask']
+        if mask is not None:
+            mask.pack()
+            mask_texture = bpy.data.textures.new(name + '_emission', type='IMAGE')
+            mask_texture.image = mask
+            mask_texture.use_alpha = False
+
 
         # Handle magenta transparency
         if name[0] == '{':
@@ -486,7 +436,7 @@ def create_materials(texture_data, preferences, options):
         node_tree.links.new(main_shader.outputs[0], output_node.inputs['Surface'])
 
         # set up transparent textures
-        if texture_entry['use_alpha']:
+        if image is not None and texture_entry['use_alpha']:
             mat.blend_method = 'CLIP' # Eevee material setting
             mix_shader = node_tree.nodes.new('ShaderNodeMixShader')
             trans_shader = node_tree.nodes.new('ShaderNodeBsdfTransparent')
@@ -497,6 +447,11 @@ def create_materials(texture_data, preferences, options):
 
 
 def import_bsp(context, filepath, preferences, options):
+    map_name = os.path.basename(filepath).split('.')[0]
+    scale = options['scale']
+    if bpy.data.collections.get(map_name):
+        print(f"Collection {map_name} already exists in scene, aborting...")
+        return
     # Clear selection and reset cursor to prevent weirdness
     if bpy.context.active_object:
         bpy.ops.object.mode_set(mode='OBJECT')
@@ -570,24 +525,59 @@ def import_bsp(context, filepath, preferences, options):
     texinfo_size = struct.calcsize(fmt_BSPTexInfo)
     texinfo_struct = struct.Struct(fmt_BSPTexInfo)
 
-    print("-- LOADING MODELS --")
-    start_model = 0
-    if options['worldspawn_only'] == True:
-        end_model = 1
-    else:
-        end_model = num_models
-
+    # create entities and lights
+    print("-- IMPORTING LIGHTS/ENTITIES --")
+    entities = get_entity_data(filepath, header.entities_ofs, header.entities_size)
+    models_entities = {}
     added_objects = []
-    remove_hidden = options['remove_hidden']
+    added_lights = []
+    for entity in entities:
+        classname = entity['classname']
+        obj = None
+        # Brush entity
+        if 'model' in entity and entity['model'].startswith('*'):
+            model_id = int(entity['model'].replace("*", ""))
+            models_entities[model_id] = entity
+        # Point entity
+        elif 'origin' in entity:
+            # this stops lights being imported as empties, even with import_all enabled
+            if classname.startswith('light'):
+                if options['import_lights']:
+                    obj = light_add(entity, scale)
+                    added_lights.append(obj)
+            else:
+                if (options['stitch_changelevel'] and classname == 'info_landmark') or options['import_point_entities']:
+                    obj = entity_add(entity, scale)
+                    added_objects.append(obj)
+
+    if len(added_objects) > 0:
+        # Create entities collection and link entities to collection
+        entities_collection = bpy.data.collections.new(f"{map_name}_entities")
+        bpy.context.scene.collection.children.link(entities_collection)
+
+        for obj in added_objects:
+            entities_collection.objects.link(obj)
+
+    if len(added_lights) > 0:
+        # Create lights collection and link lights to it
+        lights_collection = bpy.data.collections.new(f"{map_name}_lights")
+        bpy.context.scene.collection.children.link(lights_collection)
+
+        for obj in added_lights:
+            lights_collection.objects.link(obj)
+
+    print("-- LOADING MODELS --")
+    added_objects = []
     
-    for m in range(start_model, end_model):
+    for m in range(0, num_models):
+        if m in models_entities and not options['import_brush_entities'] and models_entities[m]['classname'] != "trigger_changelevel":
+            continue # Skip entities when flags require so
         model_ofs = m * model_size
         model = BSPModel._make(model_struct.unpack_from(model_data[model_ofs:model_ofs+model_size]))
         # create new mesh
         obj = mesh_add(map_name, m)
         added_objects.append(obj)
 
-        scale = options['scale']
         obj.scale.x = scale
         obj.scale.y = scale
         obj.scale.z = scale
@@ -609,9 +599,9 @@ def import_bsp(context, filepath, preferences, options):
             texinfo = BSPTexInfo._make(texinfo_struct.unpack_from(texinfo_data[texinfo_ofs:texinfo_ofs+texinfo_size]))
             texture_specs = texture_data[texinfo.texture_id]
             texture_name = texture_specs['name']
-            # skip faces that use ignored textures
-            if remove_hidden and texture_name in ignored_texnames:
-                continue
+
+            if texture_name in skipped_textures:
+                continue # Skip tools textures such as sky...
 
             texS = texinfo[0:3]
             texT = texinfo[4:7]
@@ -669,6 +659,11 @@ def import_bsp(context, filepath, preferences, options):
                 if options['create_materials'] and material_id != -1:
                     face.material_index = material_id
 
+        # Assign properties in custom data if brush is entity
+        if m in models_entities:
+            for prop, value in models_entities[m].items():
+                obj[prop] = value
+
         if duplicateFaces > 0:
             print_debug("%d duplicate faces not created in model %d" % (duplicateFaces, m))
     
@@ -684,93 +679,19 @@ def import_bsp(context, filepath, preferences, options):
     map_collection = bpy.data.collections.new(map_name)
     bpy.context.scene.collection.children.link(map_collection)
 
-    # Add objects only if they have polygons
-    bpy.ops.object.select_all(action='DESELECT')
+    # Add objects only if they have polygons and relevant
     for obj in added_objects:
         if obj.type == 'MESH' and len(obj.data.polygons) > 0:
             map_collection.objects.link(obj)
-            # For brush entities, we want the origin to be their center
-            if obj.name != map_name+"_model_0":
-                print('resetting origin for model %s' % obj.name)
-                obj.select_set(True)
         else:
             bpy.data.objects.remove(obj)
-    # Apply origin change & deselect
-    bpy.ops.object.origin_set(type='ORIGIN_CENTER_OF_MASS')
-    bpy.ops.object.select_all(action='DESELECT')
 
-    print("-- LOADING ENTITIES --")
-    # create entities, lights and cameras
-    create_entities = options['create_entities']
-    create_lights = options['create_lights']
-    create_cameras = options['create_cameras']
-    import_all = options['all_entities']
-
-    if create_entities or create_cameras or create_lights or import_all:
-        scale = options['scale']
-        entities = get_entity_data(filepath, header.entities_ofs, header.entities_size)
-        added_objects = []
-        added_lights = []
-        for entity in entities:
-            classname = entity['classname']
-            obj = None
-            # Brush entity
-            if 'model' in entity and entity['model'].startswith('*'):
-                print(entity)
-                model_id = entity['model'].replace("*", "")
-                obj = map_collection.objects[map_name + '_model_' + model_id]
-                # Assign properties in custom data
-                for prop, value in entity.items():
-                    obj[prop] = value
-            # Point entity
-            elif 'origin' in entity:
-                # this stops lights being imported as empties, even with import_all enabled
-                if classname.startswith('light'):
-                    if create_lights:
-                        obj = light_add(entity, scale)
-                        added_lights.append(obj)
-                elif create_cameras and classname in camera_types:
-                    obj = camera_add(entity, scale)
-                    added_objects.append(obj)
-                elif import_all is True or (create_entities and is_imported_entity(classname)):
-                    obj = entity_add(entity, scale)
-                    added_objects.append(obj)
-
-        if len(added_objects) > 0:
-            # Create entities collection and link entities to collection
-            entities_collection = bpy.data.collections.new(map_name + "_entities")
-            bpy.context.scene.collection.children.link(entities_collection)
-
-            for obj in added_objects:
-                entities_collection.objects.link(obj)
-
-        if len(added_lights) > 0:
-            # Create lights collection and link lights to it
-            lights_collection = bpy.data.collections.new(map_name + "_lights")
-            bpy.context.scene.collection.children.link(lights_collection)
-
-            for obj in added_lights:
-                lights_collection.objects.link(obj)
-
-    # Set up view
-    view_3d_areas = [area for area in bpy.context.screen.areas if area.ui_type == 'VIEW_3D']
-    for viewport in view_3d_areas:
-        for space in viewport.spaces:
-            if hasattr(space, 'shading'):
-                shading = space.shading
-                shading.type = 'SOLID' # Workbench engine
-                shading.light = 'STUDIO' # Studio lights (needed for some of the following options)
-                shading.color_type = 'TEXTURE' # textured mode (only available with FLAT and STUDIO lighting)
-                shading.show_backface_culling = True
-                shading.show_specular_highlight = False
-
-    stitch_changelevel = options['stitch_changelevel']
-    print("-- BEGIN CHANGELEVEL STITCH --")
-    if stitch_changelevel:
+    if options['stitch_changelevel']:
+        print("-- BEGIN CHANGELEVEL STITCH --")
         map_offset = None
         for model in map_collection.all_objects:
             if 'classname' in model and model['classname'] == 'trigger_changelevel':
-                connected_map_entities = bpy.data.collections.get(model['map']+"_entities")
+                connected_map_entities = bpy.data.collections.get(f"{model['map']}_entities")
                 if connected_map_entities:
                     # Now we know both map exists in the scene, look for stitches
                     landmark = None
@@ -792,8 +713,9 @@ def import_bsp(context, filepath, preferences, options):
                 model.location += map_offset
             for ent in entities_collection.all_objects:
                 ent.location += map_offset
-            for light in lights_collection.all_objects:
-                light.location += map_offset
+            if lights_collection:
+                for light in lights_collection.all_objects:
+                    light.location += map_offset
 
     print("-- IMPORT COMPLETE --")
 
